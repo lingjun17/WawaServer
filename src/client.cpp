@@ -26,7 +26,7 @@ int send_pkg(int sockfd, Pkg &pkg)
         if(s >= 0)
         {
             byte_sent += s;
-            //log_debug("send packet %d", len);
+            log_debug("send packet %d bytes len %d", s, len);
         }
         else
         {
@@ -36,7 +36,7 @@ int send_pkg(int sockfd, Pkg &pkg)
 
         if(byte_sent == len)
         {
-            //log_debug("packet fully sent");
+            log_debug("packet fully sent %d bytes sent", byte_sent);
             break;
         }
     }
@@ -155,12 +155,16 @@ int main()
             exit(1);
         }
 
-        int totalbyte = 0;
+        Pkg pkg;
+        pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
+        pkg.stHead.len = 0;
+        memset(pkg.stBody.stStreamDataNtf.buf, 0, BUF_SIZE);
+        //memcpy(pkg.stBody.stStreamDataNtf.buf, sbuf, r);
+
         while(1)
         {
             int r = 0;
-            memset(sbuf, 0, sizeof(sbuf));
-            if((r = read(fd, sbuf, BUF_SIZE)) < 0)
+            if((r = read(fd, pkg.stBody.stStreamDataNtf.buf, BUF_SIZE)) < 0)
             {
                 log_debug("read file error %s",strerror(errno));
                 break;
@@ -168,23 +172,13 @@ int main()
             }
             else if(r > 0)
             {
-                Pkg pkg;
-                pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
                 pkg.stHead.len = r;
-                //memcpy(pkg.stBody.stStreamDataNtf.buf, sbuf, r);
                 int iRet = send_pkg(sockfd, pkg);
                 if (iRet != 0)
                 {
                     printf("send pkg error\n");
                     return -1;
                 }
-                else
-                {
-                    totalbyte += r;
-                    log_debug("stream data %d bytes sent total %d", r, totalbyte);
-                }
-                //usleep(10000);
-                //sleep(1);
             }
             else
             {
@@ -198,6 +192,11 @@ int main()
             //sprintf(sbuf, "%lu.%u", current_time.tv_sec, current_time.tv_usec);
             //printf("sent2 %s\n", sbuf);
         }
+
+
+
+        //usleep(10000);
+        //sleep(1);
 
     }
     while(1);

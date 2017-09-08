@@ -150,21 +150,37 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
         //解析头
         recvCtx->len += r;
         int pkglen = recvCtx->pkg.stHead.len + sizeof(recvCtx->pkg.stHead);
-        log_debug("recv packet %ld bytes this time %d bytes in total", r, recvCtx->len);
+        log_debug("recv packet %ld bytes this time %d bytes in total cmd %d", r, recvCtx->len, recvCtx->pkg.stHead.cmd);
         if(recvCtx->len < sizeof(recvCtx->pkg.stHead))
         {
+            for (int i = 0; i < recvCtx->len; ++i) {
+                printf("%02X ", *((char*)(&recvCtx->pkg)+i));
+                if (i+1 % 100 == 0)
+                    printf("\n");
+            }
             log_debug("head is not full recvd");
             return;
         }
         else if (recvCtx->len < pkglen)
         {
+            for (int i = 0; i < 12; ++i) {
+                printf("%02X ", *((char*)(&recvCtx->pkg)+i));
+                if (i+1 % 100 == 0)
+                    printf("\n");
+            }
             log_debug("body is not full recvd recvlen %d packagelen %d", recvCtx->len, pkglen);
             return;
         }
-
+        for (int i = 0; i < 12; ++i) {
+            printf("%02X ", *((char*)(&recvCtx->pkg)+i));
+            if (i+1 % 100 == 0)
+                printf("\n");
+        }
         log_debug("full pkg received len %d cmd %d %s", recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stBody.stStreamDataNtf.buf);
         recvCtx->pkg.stHead.fd = recvCtx->io.fd;  // store fd in pkg header
         handle_pkg(recvCtx->pkg);
+
+
         recvCtx->len = 0;
     }
 }

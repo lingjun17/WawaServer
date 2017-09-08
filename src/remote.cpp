@@ -112,11 +112,11 @@ int main()
 	printf("connect server ret %d\n", ret);
 
 	//封装数据包
-	Pkg pkg;
-	pkg.stHead.cmd = PKG_REGISTER_CLIENT_REQ;
-	pkg.stHead.len = sizeof(pkg.stBody.stRegisterClientReq);
-	pkg.stBody.stRegisterClientReq.clientType = CTYPE_REMOTE;
-	int iRet = send_pkg(sockfd, pkg);
+	Pkg *pkg = new Pkg();
+	pkg->stHead.cmd = PKG_REGISTER_CLIENT_REQ;
+	pkg->stHead.len = sizeof(pkg->stBody.stRegisterClientReq);
+	pkg->stBody.stRegisterClientReq.clientType = CTYPE_REMOTE;
+	int iRet = send_pkg(sockfd, *pkg);
 	if (iRet != 0)
 	{
 		printf("send pkg error\n");
