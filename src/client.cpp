@@ -103,8 +103,7 @@ int main()
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(PORT);
-    //"122.152.213.73"
-	inet_pton(AF_INET, "122.152.213.73", &servaddr.sin_addr);
+	inet_pton(AF_INET, IP, &servaddr.sin_addr);
 
 	int ret = connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
 	printf("connect server ret %d\n", ret);
@@ -134,74 +133,78 @@ int main()
     //log_debug("recv pkg cmd %d", recvpkg.stHead.cmd);
     log_debug("shakehands succ!");
 
-    //wait for send data
-    recvpkg.construct();
-    iRet = recv_pkg(sockfd, recvpkg);
-    if (iRet != 0)
+    while(1)
     {
-        printf("recv pkg error\n");
-        return -1;
-    }
-
-    if (recvpkg.stHead.cmd == PKG_START_SEND_DATA_NTF)
-    {
-        //start send data
-        log_debug("start send data");
-        char sbuf[BUF_SIZE];
-        int pos = 0;
-        int fd = 0;
-        if((fd = open("/Users/junling/test.txt",O_RDONLY)) == -1) {
-            printf("cannot open file/n");
-            exit(1);
-        }
-
-        Pkg pkg;
-        pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
-        pkg.stHead.len = 0;
-        memset(pkg.stBody.stStreamDataNtf.buf, 0, BUF_SIZE);
-        //memcpy(pkg.stBody.stStreamDataNtf.buf, sbuf, r);
-
-        while(1)
+        //wait for send data
+        recvpkg.construct();
+        iRet = recv_pkg(sockfd, recvpkg);
+        if (iRet != 0)
         {
-            int r = 0;
-            if((r = read(fd, pkg.stBody.stStreamDataNtf.buf, BUF_SIZE)) < 0)
-            {
-                log_debug("read file error %s",strerror(errno));
-                break;
-                //send(sockfd, sbuf, strlen(sbuf), 0);
-            }
-            else if(r > 0)
-            {
-                pkg.stHead.len = r;
-                int iRet = send_pkg(sockfd, pkg);
-                if (iRet != 0)
-                {
-                    printf("send pkg error\n");
-                    return -1;
-                }
-            }
-            else
-            {
-                log_debug("read end!");
-                break;
-            }
-            //    printf("%s",sbuf);
-            //read(STDIN_FILENO, sbuf, 100);
-            //struct timeval current_time;
-            //gettimeofday( &current_time, NULL );
-            //sprintf(sbuf, "%lu.%u", current_time.tv_sec, current_time.tv_usec);
-            //printf("sent2 %s\n", sbuf);
+            printf("recv pkg error\n");
+            return -1;
         }
 
+        if (recvpkg.stHead.cmd == PKG_START_SEND_DATA_NTF)
+        {
+            //start send data
+            log_debug("start send data");
+            char sbuf[BUF_SIZE];
+            int pos = 0;
+            int fd = 0;
+            if((fd = open("/Users/junling/test.txt",O_RDONLY)) == -1) {
+                printf("cannot open file/n");
+                exit(1);
+            }
 
+            Pkg pkg;
+            pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
+            pkg.stHead.len = 0;
+            memset(pkg.stBody.stStreamDataNtf.buf, 0, BUF_SIZE);
+            //memcpy(pkg.stBody.stStreamDataNtf.buf, sbuf, r);
 
-        //usleep(10000);
-        //sleep(1);
+            while(1)
+            {
+                int r = 0;
+                if((r = read(fd, pkg.stBody.stStreamDataNtf.buf, BUF_SIZE)) < 0)
+                {
+                    log_debug("read file error %s",strerror(errno));
+                    break;
+                    //send(sockfd, sbuf, strlen(sbuf), 0);
+                }
+                else if(r > 0)
+                {
+                    pkg.stHead.len = r;
+                    int iRet = send_pkg(sockfd, pkg);
+                    if (iRet != 0)
+                    {
+                        printf("send pkg error\n");
+                        return -1;
+                    }
+                }
+                else
+                {
+                    log_debug("read end!");
+                    break;
+                }
 
+            }
+        }
+
+        recvpkg.construct();
+        iRet = recv_pkg(sockfd, recvpkg);
+        if (iRet != 0)
+        {
+            printf("recv pkg error\n");
+            return -1;
+        }
+
+        if(recvpkg.stHead.cmd == PKG_REMOTE_TO_RASPI_NTF)
+        {
+            log_debug("continue next remote");
+            continue;
+        }
     }
-    while(1);
 
-    close(sockfd);
 	return 0;
 }
 

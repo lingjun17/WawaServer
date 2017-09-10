@@ -69,6 +69,7 @@ int inithandler()
     handler_map.insert(std::make_pair(PKG_REGISTER_CLIENT_REQ, handle_register_client_req));
     handler_map.insert(std::make_pair(PKG_STREAM_DATA_NTF, handle_stream_data_ntf));
     handler_map.insert(std::make_pair(PKG_CHOOSE_SERVER_REQ, handle_choose_server_req));
+    handler_map.insert(std::make_pair(PKG_REMOTE_TO_RASPI_NTF, handle_remote_to_raspi_req));
     return 0;
 }
 

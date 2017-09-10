@@ -1,8 +1,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <cstdlib>
+#include <cstdio>
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -13,6 +13,10 @@
 
 #define __DEBUG
 #include "util.h"
+
+
+static int sockfd = 0;
+
 
 
 int send_pkg(int sockfd, Pkg &pkg)
@@ -97,16 +101,29 @@ int recv_pkg(int sockfd, Pkg &pkg)
 	return 0;
 }
 
+void signal_cb(int sig)
+{
+	Pkg sendPkg;
+	sendPkg.stHead.cmd = PKG_REMOTE_TO_RASPI_NTF;
+	sendPkg.stHead.len = sizeof(sendPkg.stBody.stDataFromRemoteToRaspiNtf);
+	sendPkg.stBody.stDataFromRemoteToRaspiNtf.op = 1;
+	int iRet = send_pkg(sockfd, sendPkg);
+	log_debug("exit!!!!! iRet %d", iRet);
+	exit(0);
+}
+
 int main()
 {
+	signal(SIGINT, signal_cb);
+
 	struct sockaddr_in servaddr;
 	memset(&servaddr, 0, sizeof(servaddr));
 
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(PORT);
 	//"122.152.213.73"
-	inet_pton(AF_INET, "122.152.213.73", &servaddr.sin_addr);
+	inet_pton(AF_INET, IP, &servaddr.sin_addr);
 
 	int ret = connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
 	printf("connect server ret %d\n", ret);

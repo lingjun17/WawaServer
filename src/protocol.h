@@ -10,7 +10,8 @@
 
 #define BUF_SIZE 1400
 #define CHANNEL_MAX 256
-#define IP "10.105.208.201"
+#define IP "127.0.0.1"
+//"10.105.208.201"
 #define PORT 8888
 
 enum CLIENT_TYPE
@@ -31,6 +32,7 @@ enum PKG_CMD_TYPE
     PKG_CHOOSE_SERVER_REQ = 8,
     PKG_CHOOSE_SERVER_RES = 9,
     PKG_START_SEND_DATA_NTF = 10,
+    PKG_REMOTE_TO_RASPI_NTF = 11,
 };
 
 struct RegisterServerReq
@@ -69,6 +71,11 @@ struct StreamDataNtf
     char buf[BUF_SIZE];;
 };
 
+struct DataFromRemoteToRaspiNtf
+{
+    int op; //操作码
+};
+
 struct ChooseServerReq
 {
     int choose_fd;
@@ -104,6 +111,7 @@ union Body
     ChooseServerReq stChooseServerReq;
     ChooseServerRes stChooseServerRes;
     StartSendDataNtf stStartSendDataNtf;
+    DataFromRemoteToRaspiNtf stDataFromRemoteToRaspiNtf;
 };
 
 struct Pkg
