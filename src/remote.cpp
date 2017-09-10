@@ -10,7 +10,7 @@
 #include <sys/time.h>
 #include <memory>
 #include "protocol.h"
-
+#include <csignal>
 #define __DEBUG
 #include "util.h"
 
