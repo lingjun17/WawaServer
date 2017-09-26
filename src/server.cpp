@@ -96,6 +96,7 @@ void accept_cb(EV_P_ ev_io *io, int revents)
     setsockopt(serverfd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
 #endif
     setnonblocking(serverfd);
+    //old version
     Channel *pChannel = get_free_channel();
     pChannel->fd = serverfd;
     channel_map.insert(std::make_pair(serverfd, pChannel));  // make map from fd to channel point
@@ -103,7 +104,13 @@ void accept_cb(EV_P_ ev_io *io, int revents)
     ev_io_init(&pChannel->sendCtx.io, server_send_cb, serverfd, EV_WRITE);
     pChannel->recvCtx.pChannel = pChannel;
     pChannel->sendCtx.pChannel = pChannel;
+    ev_io_stop(EV_A_ &pChannel->sendCtx.io);
     ev_io_start(EV_A_ &pChannel->recvCtx.io); //server recv first
+    //new version
+    //Tunnel *pTunnel = new Tunnel();
+    //tunnel_map.insert(std::make_pair(serverfd, pTunnel));
+    //ev_io_init(&pChannel->recvCtx.io, server_recv_cb, serverfd, EV_READ);
+    //ev_io_init(&pChannel->sendCtx.io, server_send_cb, serverfd, EV_WRITE);
 }
 
 int handle_pkg(Pkg &pkg)
@@ -111,7 +118,7 @@ int handle_pkg(Pkg &pkg)
     handler_map_it = handler_map.find(pkg.stHead.cmd);
     if (handler_map_it != handler_map.end())
     {
-        log_debug("handle cmd %d", pkg.stHead.cmd);
+        //log_debug("handle cmd %d", pkg.stHead.cmd);
         return handler_map_it->second(pkg);
     }
     log_debug("no hanlder found");
@@ -121,20 +128,24 @@ int handle_pkg(Pkg &pkg)
 void server_recv_cb(EV_P_ ev_io *io, int revents)
 {
     RecvCtx *recvCtx = reinterpret_cast<RecvCtx*>(io);
+
+    //log_debug("channel recvd before bytes recvctx->len %d pkg.sthead.len %d", recvCtx->len, recvCtx->pkg.stHead.len);
     ssize_t r = recv(recvCtx->io.fd, (char*)&recvCtx->pkg + recvCtx->len,
-                     BUF_SIZE + sizeof(recvCtx->pkg.stHead) - recvCtx->len, 0);
-    //log_debug("channel recvd %d bytes cmd %d", recvCtx->pChannel->recvlen, recvCtx->pChannel->pkg.stHead.cmd);
+                     recvCtx->pkg.stHead.len + sizeof(recvCtx->pkg.stHead) - recvCtx->len, 0);
+    //channel recvd 0 bytes cmd 7 len 1296 r 1412
+    //log_debug("channel recvd %ld bytes recvctx->len %d pkg.sthead.len %d", r, recvCtx->len, recvCtx->pkg.stHead.len);
+    //log_debug("channel recvd %d bytes cmd %d len %d r %ld", recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stHead.len, r);
     if (r == 0) {
         // connection closed
         log_debug("server_recv close the connection");
         free_channel(recvCtx->pChannel);
         free_bridge(io->fd);
-        //printf("recv %s", buf);
         return;
     } else if (r == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // no data
             // continue to wait for recv
+            ev_io_start(EV_A_ & recvCtx->io);
             log_debug("wait for next read");
             return;
         } else {
@@ -151,38 +162,33 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
         //解析头
         recvCtx->len += r;
         int pkglen = recvCtx->pkg.stHead.len + sizeof(recvCtx->pkg.stHead);
-        log_debug("recv packet %ld bytes this time %d bytes in total cmd %d", r, recvCtx->len, recvCtx->pkg.stHead.cmd);
-        if(recvCtx->len < sizeof(recvCtx->pkg.stHead))
-        {
-            for (int i = 0; i < recvCtx->len; ++i) {
-                printf("%02X ", *((char*)(&recvCtx->pkg)+i));
-                if (i+1 % 100 == 0)
-                    printf("\n");
-            }
+        //recv packet 1412 bytes this time 1412 bytes in total cmd 7 len 1296
+        //log_debug("recv packet %ld bytes this time %d bytes in total cmd %d len %d", r, recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stHead.len);
+        if(recvCtx->len < sizeof(recvCtx->pkg.stHead)) {
             log_debug("head is not full recvd");
+            return;
+        }
+        else if(recvCtx->pkg.stHead.len > BUF_SIZE) //包出错的情况
+        {
+            log_debug("bad packet bodylen %d", recvCtx->pkg.stHead.len);
+            //关闭该socket
+            free_channel(recvCtx->pChannel);
+            free_bridge(recvCtx->pChannel->fd);
             return;
         }
         else if (recvCtx->len < pkglen)
         {
-            for (int i = 0; i < 12; ++i) {
-                printf("%02X ", *((char*)(&recvCtx->pkg)+i));
-                if (i+1 % 100 == 0)
-                    printf("\n");
-            }
-            log_debug("body is not full recvd recvlen %d packagelen %d", recvCtx->len, pkglen);
+            //log_debug("body is not full recvd recvlen %d packagelen %d", recvCtx->len, pkglen);
+            ev_io_start(EV_A_ & recvCtx->io);
             return;
         }
-        for (int i = 0; i < 12; ++i) {
-            printf("%02X ", *((char*)(&recvCtx->pkg)+i));
-            if (i+1 % 100 == 0)
-                printf("\n");
-        }
-        log_debug("full pkg received len %d cmd %d %s", recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stBody.stStreamDataNtf.buf);
+
+        log_debug("full pkg received len %d cmd %d", recvCtx->len, recvCtx->pkg.stHead.cmd/*, recvCtx->pkg.stBody.stStreamDataNtf.buf*/);
         recvCtx->pkg.stHead.fd = recvCtx->io.fd;  // store fd in pkg header
         handle_pkg(recvCtx->pkg);
 
-
         recvCtx->len = 0;
+        recvCtx->pkg.construct();
     }
 }
 

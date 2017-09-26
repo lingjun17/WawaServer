@@ -8,6 +8,7 @@
 #include "ev.h"
 #include "protocol.h"
 #include <map>
+#include <queue>
 
 
 enum CHANNEL_STATUS
@@ -51,6 +52,38 @@ struct Bridge
     int status;
     int idx;
 };
+/*
+extern std::map<int, Tunnel*> tunnel_map; //fd->channel
+
+class Tunnel
+{
+public:
+    Tunnel()
+    {
+        pPkgQueue = new std::queue<Pkg>();
+        memset(&raspiRecvCtx, 0, sizeof(raspiRecvCtx));
+        memset(&raspiSendCtx, 0, sizeof(raspiSendCtx));
+        memset(&remoteRecvCtx, 0, sizeof(remoteRecvCtx));
+        memset(&remoteSendCtx, 0, sizeof(remoteSendCtx));
+    }
+
+    ~Tunnel()
+    {
+        delete(pPkgQueue);
+    }
+
+
+
+private:
+    std::queue<Pkg> *pPkgQueue;
+    RecvCtx raspiRecvCtx;
+    SendCtx raspiSendCtx;
+    RecvCtx remoteRecvCtx;
+    SendCtx remoteSendCtx;
+};
+*/
+
+
 
 
 int setnonblocking(int fd);

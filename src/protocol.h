@@ -10,9 +10,19 @@
 
 #define BUF_SIZE 1400
 #define CHANNEL_MAX 256
-#define IP "127.0.0.1"
+#define IP "122.152.213.73"
+//"10.105.208.201"
+
+//"122.152.213.73"
+//192.168.3.4"
+//"122.152.213.73"
+//"114.94.126.35"
+//IP "192.168.3.4"
+//"127.0.0.1"
+//"192.168.3.4"
 //"10.105.208.201"
 #define PORT 8888
+
 
 enum CLIENT_TYPE
 {
@@ -33,6 +43,12 @@ enum PKG_CMD_TYPE
     PKG_CHOOSE_SERVER_RES = 9,
     PKG_START_SEND_DATA_NTF = 10,
     PKG_REMOTE_TO_RASPI_NTF = 11,
+    PKG_RESTART_CLIENT_NTF = 12,
+};
+
+struct RestartClientNtf
+{
+    int Reserve;
 };
 
 struct RegisterServerReq
@@ -112,6 +128,7 @@ union Body
     ChooseServerRes stChooseServerRes;
     StartSendDataNtf stStartSendDataNtf;
     DataFromRemoteToRaspiNtf stDataFromRemoteToRaspiNtf;
+    RestartClientNtf stRestartClientNtf;
 };
 
 struct Pkg

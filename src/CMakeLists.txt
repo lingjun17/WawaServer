@@ -7,6 +7,10 @@ set(CMAKE_CXX_STANDARD 11)
 add_executable(wawa server.cpp protocol.cpp handler.cpp)
 add_executable(client client.cpp protocol.cpp)
 add_executable(remote remote.cpp protocol.cpp)
-
+add_executable(t test.cpp test.h)
+add_executable(out out.cpp out.h)
+add_executable(raspi raspi.h raspi.cpp)
 
 target_link_libraries(wawa -lev)
+target_link_libraries(raspi -lev)
+target_link_libraries(client -lpthread)

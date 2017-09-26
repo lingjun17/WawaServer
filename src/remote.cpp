@@ -7,6 +7,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <memory>
 #include "protocol.h"
@@ -16,7 +17,7 @@
 
 
 static int sockfd = 0;
-
+static int filefd = 0;
 
 
 int send_pkg(int sockfd, Pkg &pkg)
@@ -76,7 +77,11 @@ int recv_pkg(int sockfd, Pkg &pkg)
 	}
 
 	pkglen += pkg.stHead.len;
-	log_debug("pkghead len");
+	if (pkglen > BUF_SIZE + sizeof(pkg.stHead))
+	{
+		log_debug("bad packet bodylen %d", pkg.stHead.len);
+		return -2;
+	}
 	while(1)
 	{
 		r = recv(sockfd, (char*)(&pkg) + len, pkglen - len, 0);
@@ -109,6 +114,8 @@ void signal_cb(int sig)
 	sendPkg.stBody.stDataFromRemoteToRaspiNtf.op = 1;
 	int iRet = send_pkg(sockfd, sendPkg);
 	log_debug("exit!!!!! iRet %d", iRet);
+	close(filefd);
+	close(sockfd);
 	exit(0);
 }
 
@@ -200,8 +207,8 @@ int main()
 	}
 
     //获取文件指针
-    FILE *pFile = fopen("test1.txt", "w");
-// //告诉系统我们文件写完了数据更新，但是我们要要重新打开才能在写
+    filefd = open("t.h264", O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+	//告诉系统我们文件写完了数据更新，但是我们要要重新打开才能在写
     //数据刷新 数据立即更新
 	int totalbyte = 0;
 	while(1)
@@ -215,14 +222,17 @@ int main()
 		}
 		else
 		{
-            fwrite (recvpkg.stBody.stStreamDataNtf.buf, 1, recvpkg.stHead.len, pFile);
-            log_debug("recvd : %s", recvpkg.stBody.stStreamDataNtf.buf);
-            fflush(pFile);
-            totalbyte += recvpkg.stHead.len;
 			printf("recv package cmd %d from raspi %d bytes recvd total %d\n", recvpkg.stHead.cmd, recvpkg.stHead.len, totalbyte);
+			//log_debug("recvd : %s", recvpkg.stBody.stStreamDataNtf.buf);
+			int w = write (filefd, recvpkg.stBody.stStreamDataNtf.buf, recvpkg.stHead.len);
+			if (w != recvpkg.stHead.len)
+			{
+				log_debug("write error %d len %d errno %s",w, recvpkg.stHead.len, strerror(errno));
+			}
+            totalbyte += recvpkg.stHead.len;
 		}
 	}
-    fclose(pFile);
+    close(filefd);
 
     close(sockfd);
 	return 0;
