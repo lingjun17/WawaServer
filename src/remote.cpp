@@ -19,7 +19,6 @@
 static int sockfd = 0;
 static int filefd = 0;
 
-
 int send_pkg(int sockfd, Pkg &pkg)
 {
 	int byte_sent = 0;
@@ -77,11 +76,12 @@ int recv_pkg(int sockfd, Pkg &pkg)
 	}
 
 	pkglen += pkg.stHead.len;
-	if (pkglen > BUF_SIZE + sizeof(pkg.stHead))
+	if ((unsigned long)pkglen > BUF_SIZE + sizeof(pkg.stHead))
 	{
 		log_debug("bad packet bodylen %d", pkg.stHead.len);
 		return -2;
 	}
+
 	while(1)
 	{
 		r = recv(sockfd, (char*)(&pkg) + len, pkglen - len, 0);
@@ -106,14 +106,9 @@ int recv_pkg(int sockfd, Pkg &pkg)
 	return 0;
 }
 
-void signal_cb(int sig)
+void signal_cb(int)
 {
-	Pkg sendPkg;
-	sendPkg.stHead.cmd = PKG_REMOTE_TO_RASPI_NTF;
-	sendPkg.stHead.len = sizeof(sendPkg.stBody.stDataFromRemoteToRaspiNtf);
-	sendPkg.stBody.stDataFromRemoteToRaspiNtf.op = 1;
-	int iRet = send_pkg(sockfd, sendPkg);
-	log_debug("exit!!!!! iRet %d", iRet);
+	log_debug("exit!!!!! iRet %d", 0);
 	close(filefd);
 	close(sockfd);
 	exit(0);
@@ -129,7 +124,6 @@ int main()
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(PORT);
-	//"122.152.213.73"
 	inet_pton(AF_INET, IP, &servaddr.sin_addr);
 
 	int ret = connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
@@ -225,16 +219,12 @@ int main()
 			printf("recv package cmd %d from raspi %d bytes recvd total %d\n", recvpkg.stHead.cmd, recvpkg.stHead.len, totalbyte);
 			//log_debug("recvd : %s", recvpkg.stBody.stStreamDataNtf.buf);
 			int w = write (filefd, recvpkg.stBody.stStreamDataNtf.buf, recvpkg.stHead.len);
-			if (w != recvpkg.stHead.len)
+			if (w != (int)recvpkg.stHead.len)
 			{
 				log_debug("write error %d len %d errno %s",w, recvpkg.stHead.len, strerror(errno));
 			}
             totalbyte += recvpkg.stHead.len;
 		}
 	}
-    close(filefd);
-
-    close(sockfd);
-	return 0;
 }
 

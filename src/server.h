@@ -15,6 +15,7 @@ enum CHANNEL_STATUS
 {
     NON_ACTIVE = 0,
     ACTIVE = 1,
+    BUSY = 2
 };
 
 struct Channel;
@@ -39,51 +40,12 @@ struct SendCtx
 struct Channel
 {
     int fd;             //fd
-    int status;         //1 active 0 unactive
+    int status;         //1 active 0 unactive 2 busy
     int idx;            //channel idx in array
+    int type;           //remote or raspi enum CLIENT_TYPE
     RecvCtx recvCtx;
     SendCtx sendCtx;
 };
-
-struct Bridge
-{
-    Channel *pRaspChannel; //raspi
-    Channel *pRemoteChannel; //android
-    int status;
-    int idx;
-};
-/*
-extern std::map<int, Tunnel*> tunnel_map; //fd->channel
-
-class Tunnel
-{
-public:
-    Tunnel()
-    {
-        pPkgQueue = new std::queue<Pkg>();
-        memset(&raspiRecvCtx, 0, sizeof(raspiRecvCtx));
-        memset(&raspiSendCtx, 0, sizeof(raspiSendCtx));
-        memset(&remoteRecvCtx, 0, sizeof(remoteRecvCtx));
-        memset(&remoteSendCtx, 0, sizeof(remoteSendCtx));
-    }
-
-    ~Tunnel()
-    {
-        delete(pPkgQueue);
-    }
-
-
-
-private:
-    std::queue<Pkg> *pPkgQueue;
-    RecvCtx raspiRecvCtx;
-    SendCtx raspiSendCtx;
-    RecvCtx remoteRecvCtx;
-    SendCtx remoteSendCtx;
-};
-*/
-
-
 
 
 int setnonblocking(int fd);
@@ -95,11 +57,8 @@ void server_recv_cb(EV_P_ ev_io *w, int revents);
 void server_send_cb(EV_P_ ev_io *w, int revents);
 int setfastopen(int fd);
 Channel* get_free_channel();
-Bridge* get_free_bridge();
 int free_channel(Channel *);
-int free_bridge(int fd);
 int inithandler();
-
 
 typedef int(*Handler)(Pkg &pkg);
 extern std::map<PKG_CMD_TYPE, Handler> handler_map;
@@ -107,7 +66,6 @@ extern std::map<PKG_CMD_TYPE, Handler>::iterator handler_map_it;
 
 extern std::map<int, Channel*> channel_map; //fd->channel
 extern struct ev_loop *loop;
-extern std::map<int, Bridge*> bridge_map_raspikey;
-extern std::map<int, Bridge*> bridge_map_remotekey;
+
 
 #endif //WAWA_SERVER_H

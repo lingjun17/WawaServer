@@ -18,13 +18,10 @@
 
 static ev_io listen_io;
 static struct Channel channel[CHANNEL_MAX];
-static struct Bridge bridge[CHANNEL_MAX];
 struct ev_loop *loop = EV_DEFAULT;
 std::map<int, Channel*> channel_map;
 std::map<PKG_CMD_TYPE, Handler> handler_map;
 std::map<PKG_CMD_TYPE, Handler>::iterator handler_map_it;
-std::map<int, Bridge*> bridge_map_raspikey;
-std::map<int, Bridge*> bridge_map_remotekey;
 
 
 int main(int argc, char *argv[])
@@ -67,9 +64,7 @@ int main(int argc, char *argv[])
 int inithandler()
 {
     handler_map.insert(std::make_pair(PKG_REGISTER_CLIENT_REQ, handle_register_client_req));
-    handler_map.insert(std::make_pair(PKG_STREAM_DATA_NTF, handle_stream_data_ntf));
     handler_map.insert(std::make_pair(PKG_CHOOSE_SERVER_REQ, handle_choose_server_req));
-    handler_map.insert(std::make_pair(PKG_REMOTE_TO_RASPI_NTF, handle_remote_to_raspi_req));
     return 0;
 }
 
@@ -104,56 +99,46 @@ void accept_cb(EV_P_ ev_io *io, int revents)
     ev_io_init(&pChannel->sendCtx.io, server_send_cb, serverfd, EV_WRITE);
     pChannel->recvCtx.pChannel = pChannel;
     pChannel->sendCtx.pChannel = pChannel;
-    ev_io_stop(EV_A_ &pChannel->sendCtx.io);
+    //ev_io_stop(EV_A_ &pChannel->sendCtx.io);
     ev_io_start(EV_A_ &pChannel->recvCtx.io); //server recv first
-    //new version
-    //Tunnel *pTunnel = new Tunnel();
-    //tunnel_map.insert(std::make_pair(serverfd, pTunnel));
-    //ev_io_init(&pChannel->recvCtx.io, server_recv_cb, serverfd, EV_READ);
-    //ev_io_init(&pChannel->sendCtx.io, server_send_cb, serverfd, EV_WRITE);
 }
 
-int handle_pkg(Pkg &pkg)
+int handle(Pkg &pkg)
 {
     handler_map_it = handler_map.find(pkg.stHead.cmd);
     if (handler_map_it != handler_map.end())
     {
-        //log_debug("handle cmd %d", pkg.stHead.cmd);
         return handler_map_it->second(pkg);
     }
-    log_debug("no hanlder found");
-    return -1;
+    else
+    {
+        log_debug("no hanlder found");
+        return 0;
+    }
 }
 
 void server_recv_cb(EV_P_ ev_io *io, int revents)
 {
     RecvCtx *recvCtx = reinterpret_cast<RecvCtx*>(io);
 
-    //log_debug("channel recvd before bytes recvctx->len %d pkg.sthead.len %d", recvCtx->len, recvCtx->pkg.stHead.len);
     ssize_t r = recv(recvCtx->io.fd, (char*)&recvCtx->pkg + recvCtx->len,
                      recvCtx->pkg.stHead.len + sizeof(recvCtx->pkg.stHead) - recvCtx->len, 0);
-    //channel recvd 0 bytes cmd 7 len 1296 r 1412
-    //log_debug("channel recvd %ld bytes recvctx->len %d pkg.sthead.len %d", r, recvCtx->len, recvCtx->pkg.stHead.len);
-    //log_debug("channel recvd %d bytes cmd %d len %d r %ld", recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stHead.len, r);
+
     if (r == 0) {
         // connection closed
-        log_debug("server_recv close the connection");
+        log_debug("server_recv close the connection fd %d", recvCtx->io.fd);
         free_channel(recvCtx->pChannel);
-        free_bridge(io->fd);
+
         return;
     } else if (r == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // no data
             // continue to wait for recv
             ev_io_start(EV_A_ & recvCtx->io);
             log_debug("wait for next read");
             return;
         } else {
             log_debug("server recv errorcode %d %s", errno, strerror(errno));
-
             free_channel(recvCtx->pChannel);
-            free_bridge(io->fd);
-
             return;
         }
     }
@@ -162,8 +147,6 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
         //解析头
         recvCtx->len += r;
         int pkglen = recvCtx->pkg.stHead.len + sizeof(recvCtx->pkg.stHead);
-        //recv packet 1412 bytes this time 1412 bytes in total cmd 7 len 1296
-        //log_debug("recv packet %ld bytes this time %d bytes in total cmd %d len %d", r, recvCtx->len, recvCtx->pkg.stHead.cmd, recvCtx->pkg.stHead.len);
         if(recvCtx->len < sizeof(recvCtx->pkg.stHead)) {
             log_debug("head is not full recvd");
             return;
@@ -173,7 +156,6 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
             log_debug("bad packet bodylen %d", recvCtx->pkg.stHead.len);
             //关闭该socket
             free_channel(recvCtx->pChannel);
-            free_bridge(recvCtx->pChannel->fd);
             return;
         }
         else if (recvCtx->len < pkglen)
@@ -183,9 +165,29 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
             return;
         }
 
-        log_debug("full pkg received len %d cmd %d", recvCtx->len, recvCtx->pkg.stHead.cmd/*, recvCtx->pkg.stBody.stStreamDataNtf.buf*/);
-        recvCtx->pkg.stHead.fd = recvCtx->io.fd;  // store fd in pkg header
-        handle_pkg(recvCtx->pkg);
+        //log_debug("full pkg received len %d cmd %d", recvCtx->len, recvCtx->pkg.stHead.cmd/*, recvCtx->pkg.stBody.stStreamDataNtf.buf*/);
+        //如果收到的包id为0 表明需要直接响应 否则代表转发到对应的fd
+        if (recvCtx->pkg.stHead.fd == 0)
+        {
+            recvCtx->pkg.stHead.fd = recvCtx->io.fd;
+            handle(recvCtx->pkg);
+        }
+        else
+        {
+            int iRet = dispatch(recvCtx->pkg, recvCtx->io.fd, recvCtx->pkg.stHead.fd);
+            if (iRet == -2) //对面已经关闭 stop树莓派
+            {
+                Pkg sendPkg;
+                sendPkg.construct();
+                sendPkg.stHead.fd = recvCtx->io.fd;
+                sendPkg.stHead.cmd = PKG_RESTART_CLIENT_NTF;
+                sendPkg.stHead.len = sizeof(sendPkg.stBody.stRestartClientNtf);
+                sendPkg.stBody.stRestartClientNtf.Reserve = 1;
+                response(sendPkg);
+                log_debug("send stop pkg to raspi fd %d", sendPkg.stHead.fd);
+                recvCtx->pChannel->status = ACTIVE; //
+            }
+        }
 
         recvCtx->len = 0;
         recvCtx->pkg.construct();
@@ -307,24 +309,6 @@ Channel* get_free_channel()
     return NULL;
 }
 
-Bridge* get_free_bridge()
-{
-    for (int i = 0; i < CHANNEL_MAX; ++i)
-    {
-        if (bridge[i].status == NON_ACTIVE)
-        {
-            bridge[i].status = ACTIVE;
-            bridge[i].idx = i;
-            bridge[i].pRaspChannel = NULL;
-            bridge[i].pRemoteChannel = NULL;
-            log_debug("get free bridge %d", i);
-            return bridge+i;
-        }
-    }
-    log_debug("no useable channel");
-    return NULL;
-}
-
 int free_channel(Channel *c)
 {
     if (c->idx >= CHANNEL_MAX || c->idx < 0)
@@ -348,47 +332,12 @@ int free_channel(Channel *c)
     return 0;
 }
 
-int free_bridge(int fd)
-{
-    std::map<int, Bridge*>::iterator it = bridge_map_raspikey.find(fd);
-    if (it != bridge_map_raspikey.end())
-    {
-        log_debug("bridge map raspikey erased %d", fd);
-        bridge_map_raspikey.erase(it);
-    }
-
-    it = bridge_map_remotekey.find(fd);
-    if (it != bridge_map_remotekey.end())
-    {
-        log_debug("bridge map remotekey erased %d", fd);
-        bridge_map_remotekey.erase(it);
-    }
-
-    return 0;
-}
-
 //callback 调用的时候 pkg已经赋值
 void server_send_cb(EV_P_ ev_io *io, int revents)
 {
     //log_debug("server send cb");
     SendCtx *sendCtx = reinterpret_cast<SendCtx*>(io);
     Channel *pch = sendCtx->pChannel;
-
-    Channel *raspi_channel = NULL;
-    std::map<int, Bridge*>::iterator bridge_rasp_it = bridge_map_raspikey.find(pch->fd);
-    if (bridge_rasp_it != bridge_map_raspikey.end())
-    {
-        //log_debug("server_send_cb can not find bridge key %d", pch->fd);
-        raspi_channel = bridge_rasp_it->second->pRaspChannel;
-    }
-
-    std::map<int, Bridge*>::iterator bridge_remote_it = bridge_map_remotekey.find(pch->fd);
-    if (bridge_remote_it != bridge_map_remotekey.end())
-    {
-        //log_debug("server_send_cb can not find bridge key %d", pch->fd);
-        raspi_channel = bridge_remote_it->second->pRaspChannel;
-    }
-
 
     int len = pch->sendCtx.pkg.stHead.len + sizeof(pch->sendCtx.pkg.stHead);
     //log_debug("len %d sendlen %d", len, pch->sendCtx.len);
@@ -397,10 +346,9 @@ void server_send_cb(EV_P_ ev_io *io, int revents)
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // no data, wait for send
             log_debug("wait data");
-
-            ev_io_stop(EV_A_ & pch->recvCtx.io);
             ev_io_start(EV_A_ & pch->sendCtx.io);
         } else {
+            log_debug("socket closed in send action fd %d", pch->fd);
             free_channel(pch);
         }
     }
@@ -408,17 +356,13 @@ void server_send_cb(EV_P_ ev_io *io, int revents)
     {
         //log_debug("send cb %d bytes send len %d",pch->sendCtx.len, len);
         pch->sendCtx.len += s;
-
-        ev_io_stop(EV_A_ & pch->recvCtx.io);
         ev_io_start(EV_A_ & pch->sendCtx.io);
     }
     else
     {
         //log_debug("rest %d bytes send over", s);
-
         ev_io_stop(EV_A_ & pch->sendCtx.io);
         ev_io_start(EV_A_ & pch->recvCtx.io);
-        ev_io_start(EV_A_ & raspi_channel->recvCtx.io);
     }
 
 }

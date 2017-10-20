@@ -20,7 +20,7 @@ void get_peer_info(int fd)
 }
 
 //recv a msg from A then resp a msg back to A
-int response_pkg(Pkg &pkg)
+int response(Pkg &pkg)
 {
     std::map<int, Channel*>::iterator channel_map_it = channel_map.find(pkg.stHead.fd); //patch
     if(channel_map_it == channel_map.end())
@@ -58,90 +58,56 @@ int response_pkg(Pkg &pkg)
     return 0;
 }
 
-
-int dispatchMsgFromRaspiToRemote(Pkg &pkg)
+int dispatch(Pkg &pkg, int srcfd, int dstfd)
 {
-    std::map<int, Bridge*>::iterator bridge_it = bridge_map_remotekey.find(pkg.stHead.fd);
-    if (bridge_it == bridge_map_remotekey.end())
+    std::map<int, Channel*>::iterator src_it = channel_map.find(srcfd);
+    if (src_it == channel_map.end())
     {
-        //log_debug("dispatchMsgFromRaspiToRemote can not find bridge key %d", pkg.stHead.fd);
+        log_debug("look for channel srcfd %d error", srcfd);
         return -1;
     }
+    std::map<int, Channel*>::iterator dst_it = channel_map.find(dstfd);
+    if (dst_it == channel_map.end())
+    {
+        log_debug("look for channel dstfd %d error", dstfd);
+        return -2;
+    }
 
-    //log_debug("dispatchMsgFromRaspiToRemote msg %s", pkg.stBody.stStreamDataNtf.buf);
+    if(pkg.stHead.len > BUF_SIZE)
+    {
+        log_debug("dispatch pkg data error pkg.stHead.len %d > BUF_SIZE", pkg.stHead.len);
+        return -3;
+    }
 
-    Channel *raspi_channel = bridge_it->second->pRaspChannel;
-    Channel *remote_channel = bridge_it->second->pRemoteChannel;
-    remote_channel->sendCtx.len = 0;
+    memcpy(&dst_it->second->sendCtx.pkg, &pkg, pkg.stHead.len + sizeof(pkg.stHead));
+    dst_it->second->sendCtx.len = 0;
+
     int len = pkg.stHead.len + sizeof(pkg.stHead);
-    int s = send(remote_channel->fd, (char*)&pkg, len ,0);
+    int s = send(dstfd, (char*)&pkg, len ,0);
     //log_debug("dispatchMsgFromRaspiToRemote send pkg to remote %d bytes sent pkglen %d", s, len);
     if (s == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // no data, wait for
             //log_debug("dispatchMsgFromRaspiToRemote no data wait for send");
-            ev_io_stop(EV_A_ & raspi_channel->recvCtx.io);
-            ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
-            ev_io_start(EV_A_ & remote_channel->sendCtx.io);
+            //ev_io_stop(EV_A_ & dst_it->recvCtx.io);
+            ev_io_stop(EV_A_ & src_it->second->recvCtx.io); //没发送完的情况下 禁止src端继续接收数据
+            ev_io_start(EV_A_ & dst_it->second->sendCtx.io);
         } else {
-            free_channel(remote_channel);
+            free_channel(dst_it->second);
         }
     } else if (s < len) {
-        remote_channel->sendCtx.len += s;
+        dst_it->second->sendCtx.len += s;
         //log_debug("dispatchMsgFromRaspiToRemote send pkg %d bytes sent", s);
-        ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
-        ev_io_stop(EV_A_ & raspi_channel->recvCtx.io);
-        ev_io_start(EV_A_ & remote_channel->sendCtx.io);
+        //ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
+        ev_io_stop(EV_A_ & src_it->second->recvCtx.io);
+        ev_io_start(EV_A_ & dst_it->second->sendCtx.io);
     }
     else
     {
         //log_debug("dispatchMsgFromRaspiToRemote send pkg succ in send_pkg_to_client fd %d",pkg.stHead.fd);
-        ev_io_stop(EV_A_ & remote_channel->sendCtx.io);
-        ev_io_start(EV_A_ & raspi_channel->recvCtx.io);
-        ev_io_start(EV_A_ & remote_channel->recvCtx.io);
-    }
-    return 0;
-}
-
-
-int dispatchMsgFromRemoteToRaspi(Pkg &pkg)
-{
-    std::map<int, Bridge*>::iterator bridge_it = bridge_map_raspikey.find(pkg.stHead.fd);
-    if (bridge_it == bridge_map_raspikey.end())
-    {
-        log_debug("dispatchMsgFromRemoteToRaspi can not find bridge key %d", pkg.stHead.fd);
-        return -1;
-    }
-
-
-    Channel *raspi_channel = bridge_it->second->pRaspChannel;
-    Channel *remote_channel = bridge_it->second->pRemoteChannel;
-    raspi_channel->sendCtx.len = 0;
-    int len = pkg.stHead.len + sizeof(pkg.stHead);
-    int s = send(raspi_channel->fd, (char*)&pkg, len ,0);
-    log_debug("dispatchMsgFromRemoteToRaspi send pkg to remote %d bytes sent pkglen %d", s, len);
-    if (s == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // no data, wait for
-            //log_debug("dispatchMsgFromRaspiToRemote no data wait for send");
-            ev_io_stop(EV_A_ & raspi_channel->recvCtx.io);
-            ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
-            ev_io_start(EV_A_ & raspi_channel->sendCtx.io);
-        } else {
-            free_channel(remote_channel);
-        }
-    } else if (s < len) {
-        remote_channel->sendCtx.len += s;
-        //log_debug("dispatchMsgFromRaspiToRemote send pkg %d bytes sent", s);
-        ev_io_stop(EV_A_ & raspi_channel->recvCtx.io);
-        ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
-        ev_io_start(EV_A_ & raspi_channel->sendCtx.io);
-    }
-    else
-    {
-        log_debug("dispatchMsgFromRemoteToRaspi send pkg succ in send_pkg_to_client fd %d",pkg.stHead.fd);
-        ev_io_stop(EV_A_ & raspi_channel->sendCtx.io);
-        ev_io_start(EV_A_ & remote_channel->recvCtx.io);
+        ev_io_stop(EV_A_ & dst_it->second->sendCtx.io);
+        ev_io_start(EV_A_ & src_it->second->recvCtx.io);
+        //ev_io_start(EV_A_ & remote_channel->recvCtx.io);
     }
     return 0;
 }
@@ -161,29 +127,17 @@ int handle_register_client_req(Pkg &pkg)
 
     if (pkg.stBody.stRegisterClientReq.clientType == CTYPE_RASPI)
     {
+        channel_map_it->second->type = CTYPE_RASPI;
         Pkg &resPkg = channel_map_it->second->sendCtx.pkg;
         resPkg.stHead.cmd = PKG_REGISTER_CLIENT_RES;
         resPkg.stHead.fd = pkg.stHead.fd; //直接响应
         resPkg.stHead.len = sizeof(resPkg.stBody.stRegisterClientRes);
         resPkg.stBody.stRegisterClientRes.result = 0;
-        response_pkg(resPkg);
-
-        //add client to map
-        Bridge *bridge = get_free_bridge();
-        if (bridge == NULL)
-        {
-            log_debug("get free bridge error");
-            return -1;
-        }
-        else
-        {
-            bridge->pRaspChannel = channel_map_it->second;
-        }
-        bridge_map_raspikey.insert(std::make_pair(pkg.stHead.fd, bridge));
-        //reapifd = pkg.stHead.fd; //patch
+        response(resPkg);
     }
     else if(pkg.stBody.stRegisterClientReq.clientType == CTYPE_REMOTE)
     {
+        channel_map_it->second->type = CTYPE_REMOTE;
         Pkg &resPkg = channel_map_it->second->sendCtx.pkg;
         resPkg.stHead.cmd = PKG_REGISTER_CLIENT_RES;
         resPkg.stHead.fd = pkg.stHead.fd;
@@ -191,21 +145,21 @@ int handle_register_client_req(Pkg &pkg)
         resPkg.stBody.stRegisterClientRes.result = 0;
 
         int i = 0;
-        for (std::map<int, Bridge*>::iterator it = bridge_map_raspikey.begin(); it != bridge_map_raspikey.end(); ++it)
+        for (std::map<int, Channel*>::iterator it = channel_map.begin(); it != channel_map.end(); ++it)
         {
-            if(it->second->status == ACTIVE)
+            if(it->second->status == ACTIVE && it->second->type == CTYPE_RASPI)
             {
-                resPkg.stBody.stRegisterClientRes.fd[i] = it->first;
+                resPkg.stBody.stRegisterClientRes.fd[i] = it->second->fd;
                 i ++;
                 if(i >= 8)
                 {
-                    log_debug("too many client");
+                    log_debug("too many raspi");
                     return -1;
                 }
             }
         }
 
-        response_pkg(resPkg);
+        response(resPkg);
     }
     else
     {
@@ -216,34 +170,7 @@ int handle_register_client_req(Pkg &pkg)
     return 0;
 }
 
-int handle_stream_data_ntf(Pkg &pkg)
-{
-    std::map<int, Bridge*>::iterator bridge_it = bridge_map_raspikey.find(pkg.stHead.fd);
-    if (bridge_it == bridge_map_raspikey.end())
-    {
-        log_debug("dispatchMsgFromRemoteToRaspi can not find bridge key %d", pkg.stHead.fd);
-        return -1;
-    }
-
-    Channel *raspi_channel = bridge_it->second->pRaspChannel;
-    Channel *remote_channel = bridge_it->second->pRemoteChannel;
-
-    if (raspi_channel == NULL || remote_channel == NULL)
-    {
-        log_debug("bridge data error");
-        return -1;
-    }
-
-    Pkg &resPkg = remote_channel->sendCtx.pkg;
-    memcpy(&resPkg, &pkg, sizeof(pkg.stHead) + pkg.stHead.len);
-    resPkg.stHead.fd = remote_channel->fd; //修改fd 以发送到对端
-
-    //log_debug("send pkg to remote cmd %d len %lu channel fd %d", resPkg.stHead.cmd, sizeof(resPkg.stHead) + resPkg.stHead.len, remote_channel->fd);
-    dispatchMsgFromRaspiToRemote(resPkg);
-    return 0;
-}
-
-int handle_remote_to_raspi_req(Pkg &pkg)
+/*int handle_remote_to_raspi_req(Pkg &pkg)
 {
     std::map<int, Bridge*>::iterator bridge_it = bridge_map_remotekey.find(pkg.stHead.fd);
     if (bridge_it == bridge_map_remotekey.end())
@@ -260,13 +187,8 @@ int handle_remote_to_raspi_req(Pkg &pkg)
         log_debug("bridge data error");
         return -1;
     }
-    //free_channel(raspi_channel);
-    //free_bridge(raspi_channel->fd);
-
-
 
     Pkg &resPkg = raspi_channel->sendCtx.pkg;
-    //memcpy(&resPkg, &pkg, sizeof(pkg.stHead) + pkg.stHead.len);
     resPkg.stHead.fd = raspi_channel->fd; //修改fd 以发送到对端
     resPkg.stHead.cmd = PKG_RESTART_CLIENT_NTF;
     log_debug("send pkg to raspi cmd %d len %lu channel fd %d", resPkg.stHead.cmd, sizeof(resPkg.stHead) + resPkg.stHead.len, raspi_channel->fd);
@@ -294,53 +216,42 @@ int handle_remote_to_raspi_req(Pkg &pkg)
     }
     return 0;
 }
-
+*/
 int handle_choose_server_req(Pkg &pkg)
 {
     int remotefd = pkg.stHead.fd;
     int raspifd = pkg.stBody.stChooseServerReq.choose_fd;
-    std::map<int, Bridge*>::iterator it = bridge_map_raspikey.find(raspifd);
-    if (it == bridge_map_raspikey.end())
-    {
-        log_debug("can not find bridge clientfd %d remotefd %d", raspifd, remotefd);
-        return -1;
-    }
+
     std::map<int, Channel*>::iterator remote_channel_it = channel_map.find(remotefd);
     if (remote_channel_it == channel_map.end())
     {
         log_debug("can not find remote channel remotefd %d", remotefd);
         return -1;
     }
-    it->second->pRemoteChannel = remote_channel_it->second;
-    bridge_map_remotekey.insert(std::make_pair(remotefd, it->second));
 
-    log_debug("bridge from clientfd %d to remotefd %d estimated", raspifd, remotefd);
+    std::map<int, Channel*>::iterator raspi_channel_it = channel_map.find(raspifd);
+    if (raspi_channel_it == channel_map.end())
+    {
+        log_debug("can not find raspi channel raspifd %d", raspifd);
+        return -1;
+    }
 
-    Pkg &resPkg = it->second->pRemoteChannel->sendCtx.pkg;
+    raspi_channel_it->second->status = BUSY;
+
+    //告诉remote可以recv数据
+    Pkg &resPkg = remote_channel_it->second->sendCtx.pkg;
     resPkg.stHead.cmd = PKG_CHOOSE_SERVER_RES;
     resPkg.stHead.fd = remotefd; // mast assign
     resPkg.stHead.len = sizeof(resPkg.stBody.stChooseServerRes);
+    resPkg.stBody.stChooseServerRes.result = 0;
+    response(resPkg);
 
-    //告诉remote可以recv数据
-    std::map<int, Channel*>::iterator channel_map_it_rasp = channel_map.find(raspifd);
-    if(channel_map_it_rasp == channel_map.end())
-    {
-        log_debug("can not find client channel key %d", raspifd);
-        resPkg.stBody.stChooseServerRes.result = -1;
-        response_pkg(resPkg);
-        return -1;
-    }
-    else
-    {
-        resPkg.stBody.stChooseServerRes.result = 0;
-        response_pkg(resPkg);
-    }
 
-    Pkg &clientPkg = channel_map_it_rasp->second->sendCtx.pkg;
+    Pkg &clientPkg = raspi_channel_it->second->sendCtx.pkg;
     clientPkg.stHead.cmd = PKG_START_SEND_DATA_NTF;
     clientPkg.stHead.len = sizeof(clientPkg.stBody.stStartSendDataNtf);
-    clientPkg.stBody.stStartSendDataNtf.reserve = 0;
-    response_pkg(clientPkg);
+    clientPkg.stBody.stStartSendDataNtf.reserve = remotefd;
+    response(clientPkg);
 
     return 0;
 }

@@ -9,7 +9,6 @@
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
-#include <sys/prctl.h>
 #include <sys/time.h>
 #include <memory>
 #include "protocol.h"
@@ -97,6 +96,8 @@ int recv_pkg(int sockfd, Pkg &pkg)
 }
 
 static int sockfd = 0;
+static int camera_pid = 0;
+static int child_pid = 0;
 
 int connect2server()
 {
@@ -115,10 +116,11 @@ int connect2server()
     return sockfd;
 }
 
-void signal_cb(int sig)
+//父进程结束的回调
+void atexit_func()
 {
-    printf("child recv SIGHUP..\n");
-    exit(1);
+    log_debug("kill camera pid %d father pid %d", camera_pid, child_pid);
+    kill(camera_pid, 9);
 }
 
 int main()
@@ -144,18 +146,13 @@ int main()
 
     Pkg recvpkg;
     iRet = recv_pkg(sockfd, recvpkg);
-    if (iRet != 0)
+    if (iRet != 0 || recvpkg.stHead.cmd != PKG_REGISTER_CLIENT_RES)
     {
         printf("recv pkg error\n");
         return -1;
     }
 
-    //log_debug("recv pkg cmd %d", recvpkg.stHead.cmd);
     log_debug("shakehands succ!");
-
-    //初始化发送变量
-    FILE *pfile = NULL;
-    int old_pid = 0;
 
     while(1)
     {
@@ -170,9 +167,8 @@ int main()
 
         if (recvpkg.stHead.cmd == PKG_RESTART_CLIENT_NTF)
         {
-            log_debug("kill old pid %d father pid %d", old_pid, getpid());
-            //pclose(pfile);
-            kill(old_pid, SIGHUP);
+            log_debug("kill child pid %d father pid %d", child_pid, getpid());
+            kill(child_pid, SIGHUP);
             recvpkg.construct();
             iRet = recv_pkg(sockfd, recvpkg);
             if (iRet != 0)
@@ -190,75 +186,62 @@ int main()
             continue;
         }
 
-        int pid = fork();
-        if (pid < 0)
+        child_pid = fork();
+        if (child_pid < 0)
         {
             log_debug("fork error!");
             return -2;
         }
-        else if (pid == 0) //子进程
+        else if (child_pid == 0) //子进程
         {
-            if (recvpkg.stHead.cmd == PKG_START_SEND_DATA_NTF)
-            {
+            if (recvpkg.stHead.cmd == PKG_START_SEND_DATA_NTF) {
                 int pipefd[2];
                 pipe(pipefd);
-                int camera_pid = fork();
-                if (camera_pid < 0)
-                {
+                camera_pid = fork();
+                if (camera_pid < 0) {
                     log_debug("fork error 2");
                     return -1;
-                }
-                else if (camera_pid == 0)
-                {
-                    prctl(PR_SET_PDEATHSIG, SIGHUP);
-                    signal(SIGHUP, signal_cb);
+                } else if (camera_pid == 0) {
+                    //prctl(PR_SET_PDEATHSIG, SIGHUP);
+                    //signal(SIGHUP, signal_cb);
+                    //signal(SIGCHLD,SIG_IGN);
                     close(pipefd[0]);
                     int iret = dup2(pipefd[1], STDOUT_FILENO);
-                    if(iret < 0)
-                    {
+                    if (iret < 0) {
                         log_debug("dup error");
                         return -1;
                     }
-                    execlp( "raspivid", "raspivid", "-vf", "-hf", "-w",
-                            "640", "-h", "480", "-fps", "10",
-                            "-t", "0", "-o", "-", NULL );
+                    /*execlp("raspivid", "raspivid", "-vf", "-hf", "-w",
+                           "640", "-h", "480", "-fps", "10",
+                           "-t", "0", "-o", "-", NULL);*/
+                    execlp("./out", "./out", NULL);
 
-                }
-                else
-                {
+                } else {
+                    atexit(atexit_func);
                     close(pipefd[1]);
                     Pkg pkg;
                     pkg.construct();
-                    while(1)
-                    {
+                    while (1) {
                         //FILE *fp = fopen("./video.h264", "w");
                         int r = 0;
-                        if((r = read(pipefd[0], pkg.stBody.stStreamDataNtf.buf, BUF_SIZE)) < 0)
-                        {
-                            log_debug("read file error %s",strerror(errno));
+                        if ((r = read(pipefd[0], pkg.stBody.stStreamDataNtf.buf, BUF_SIZE)) < 0) {
+                            log_debug("read file error %s", strerror(errno));
                             break;
-                        }
-                        else if(r > 0)
-                        {
+                        } else if (r > 0) {
                             pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
                             pkg.stHead.len = r;
                             //printf("hello test %s r %d\n", pkg.stBody.stStreamDataNtf.buf, r);
                             int iRet = send_pkg(sockfd, pkg);
-                            if (iRet != 0)
-                            {
+                            if (iRet != 0) {
                                 printf("send pkg error\n");
                                 //pclose(pfile);
                                 exit(-1);
-                            }
-                            else
-                            {
+                            } else {
 
                                 //write(STDIN_FILENO, pkg.stBody.stStreamDataNtf.buf, r);
                                 //printf("send pkg succ!!!! %s %d\n",__FILE__, __LINE__);
                             }
-                        }
-                        else
-                        {
+                        } else {
                             pkg.construct();
                             log_debug("read end!");
                             break;
@@ -277,11 +260,6 @@ int main()
 
             }
         }
-        else
-        {
-            old_pid = pid;
-        }
-
 
         log_debug("wait for new client");
     }

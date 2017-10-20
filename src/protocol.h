@@ -8,11 +8,11 @@
 #include <stdio.h>
 #include <sys/socket.h>
 
-#define BUF_SIZE 1400
+#define BUF_SIZE 1500
 #define CHANNEL_MAX 256
 #define IP "122.152.213.73"
+//"114.94.126.35"
 //"10.105.208.201"
-
 //"122.152.213.73"
 //192.168.3.4"
 //"122.152.213.73"
@@ -112,7 +112,7 @@ struct Head
 {
     PKG_CMD_TYPE cmd;
     unsigned int len;
-    int fd; //find Channel by fd
+    int fd; //fd = 0 代表发给wawasvr fd != 0 代表需要转发到对应的fd
 };
 
 union Body
