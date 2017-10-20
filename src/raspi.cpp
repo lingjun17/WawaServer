@@ -327,11 +327,11 @@ void* camera_thread(void *arg)
                 pkg.stHead.cmd = PKG_STREAM_DATA_NTF;
                 while(byte_left > 0)
                 {
-                    if(byte_left >= 1414)
+                    if(byte_left >= BUF_SIZE)
                     {
-                        pkg.stHead.len = 1414;
+                        pkg.stHead.len = BUF_SIZE;
                         memcpy(pkg.stBody.stStreamDataNtf.buf, (char*)pac_buf + pac_len - byte_left, pkg.stHead.len);
-                        byte_left -= 1414;
+                        byte_left -= BUF_SIZE;
                     }
                     else
                     {

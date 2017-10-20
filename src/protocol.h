@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <sys/socket.h>
 
-#define BUF_SIZE 1500
+#define BUF_SIZE 1400
 #define CHANNEL_MAX 256
 #define IP "122.152.213.73"
 //"114.94.126.35"
@@ -32,33 +32,18 @@ enum CLIENT_TYPE
 
 enum PKG_CMD_TYPE
 {
-    PKG_REGISTER_SERVER_REQ = 1,
-    PKG_REGISTER_SERVER_RES = 2,
-    PKG_REGISTER_CLIENT_REQ = 3,
-    PKG_REGISTER_CLIENT_RES = 4,
-    PKG_STREAM_DATA_REQ = 5,
-    PKG_STREAM_DATA_RES = 6,
-    PKG_STREAM_DATA_NTF = 7,
-    PKG_CHOOSE_SERVER_REQ = 8,
-    PKG_CHOOSE_SERVER_RES = 9,
-    PKG_START_SEND_DATA_NTF = 10,
-    PKG_REMOTE_TO_RASPI_NTF = 11,
-    PKG_RESTART_CLIENT_NTF = 12,
+    PKG_REGISTER_CLIENT_REQ = 1,
+    PKG_REGISTER_CLIENT_RES = 2,
+    PKG_STREAM_DATA_NTF = 3,
+    PKG_CHOOSE_SERVER_REQ = 4,
+    PKG_CHOOSE_SERVER_RES = 5,
+    PKG_START_SEND_DATA_NTF = 6,
+    PKG_RESTART_CLIENT_NTF = 7,
 };
 
 struct RestartClientNtf
 {
     int Reserve;
-};
-
-struct RegisterServerReq
-{
-    int clientType;
-};
-
-struct RegisterServerRes
-{
-    int result;
 };
 
 struct RegisterClientReq
@@ -72,25 +57,11 @@ struct RegisterClientRes
     int fd[8];
 };
 
-struct StreamDataReq
-{
-    char buf[BUF_SIZE];
-};
-
-struct StreamDataRes
-{
-    int result;
-};
-
 struct StreamDataNtf
 {
     char buf[BUF_SIZE];;
 };
 
-struct DataFromRemoteToRaspiNtf
-{
-    int op; //操作码
-};
 
 struct ChooseServerReq
 {
@@ -117,17 +88,12 @@ struct Head
 
 union Body
 {
-    RegisterServerReq stRegisterServerReq;
-    RegisterServerRes stRegisterServerRes;
     RegisterClientReq stRegisterClientReq;
     RegisterClientRes stRegisterClientRes;
-    StreamDataReq stStreamDataReq;
-    StreamDataRes stStreamDataRes;
     StreamDataNtf stStreamDataNtf;
     ChooseServerReq stChooseServerReq;
     ChooseServerRes stChooseServerRes;
     StartSendDataNtf stStartSendDataNtf;
-    DataFromRemoteToRaspiNtf stDataFromRemoteToRaspiNtf;
     RestartClientNtf stRestartClientNtf;
 };
 
