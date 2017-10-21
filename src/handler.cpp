@@ -5,7 +5,6 @@
 #include "server.h"
 #include <arpa/inet.h>
 #include <errno.h>
-#include <ev.h>
 
 #define __DEBUG
 #include "util.h"
@@ -23,9 +22,10 @@ void get_peer_info(int fd)
 int response(Pkg &pkg)
 {
     std::map<int, Channel*>::iterator channel_map_it = channel_map.find(pkg.stHead.fd); //patch
-    if(channel_map_it == channel_map.end())
+    if(channel_map_it == channel_map.end() || channel_map_it->second->status != ACTIVE)
     {
-        log_debug("send_pkg_to_client can not find channel key %d", pkg.stHead.fd);
+        log_debug("send_pkg_to_client can not find channel key %d status %d",
+                  pkg.stHead.fd, channel_map_it->second->status);
         return -1;
     }
 
@@ -61,13 +61,14 @@ int response(Pkg &pkg)
 int dispatch(Pkg &pkg, int srcfd, int dstfd)
 {
     std::map<int, Channel*>::iterator src_it = channel_map.find(srcfd);
-    if (src_it == channel_map.end())
+    if (src_it == channel_map.end() || src_it->second->status != ACTIVE)
     {
         log_debug("look for channel srcfd %d error", srcfd);
         return -1;
     }
+
     std::map<int, Channel*>::iterator dst_it = channel_map.find(dstfd);
-    if (dst_it == channel_map.end())
+    if (dst_it == channel_map.end() || dst_it->second->status != ACTIVE)
     {
         log_debug("look for channel dstfd %d error", dstfd);
         return -2;
@@ -84,7 +85,7 @@ int dispatch(Pkg &pkg, int srcfd, int dstfd)
 
     int len = pkg.stHead.len + sizeof(pkg.stHead);
     int s = send(dstfd, (char*)&pkg, len ,0);
-    //log_debug("dispatchMsgFromRaspiToRemote send pkg to remote %d bytes sent pkglen %d", s, len);
+    log_debug("dispatchMsgFromRaspiToRemote send pkg to remote %d bytes sent pkglen %d errno %d", s, len, errno);
     if (s == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // no data, wait for
@@ -92,19 +93,22 @@ int dispatch(Pkg &pkg, int srcfd, int dstfd)
             //ev_io_stop(EV_A_ & dst_it->recvCtx.io);
             ev_io_stop(EV_A_ & src_it->second->recvCtx.io); //没发送完的情况下 禁止src端继续接收数据
             ev_io_start(EV_A_ & dst_it->second->sendCtx.io);
+            dst_it->second->sendCtx.pSrcChannel = src_it->second;
         } else {
+            check_break_fd(dst_it->second->type, dst_it->second->fd);
             free_channel(dst_it->second);
         }
     } else if (s < len) {
         dst_it->second->sendCtx.len += s;
-        //log_debug("dispatchMsgFromRaspiToRemote send pkg %d bytes sent", s);
+        log_debug("dispatchMsgFromRaspiToRemote send pkg %d bytes sent", s);
         //ev_io_stop(EV_A_ & remote_channel->recvCtx.io);
         ev_io_stop(EV_A_ & src_it->second->recvCtx.io);
         ev_io_start(EV_A_ & dst_it->second->sendCtx.io);
+        dst_it->second->sendCtx.pSrcChannel = src_it->second;
     }
     else
     {
-        //log_debug("dispatchMsgFromRaspiToRemote send pkg succ in send_pkg_to_client fd %d",pkg.stHead.fd);
+        log_debug("distaptch send pkg succ in send_pkg_to_client fd %d",pkg.stHead.fd);
         ev_io_stop(EV_A_ & dst_it->second->sendCtx.io);
         ev_io_start(EV_A_ & src_it->second->recvCtx.io);
         //ev_io_start(EV_A_ & remote_channel->recvCtx.io);
@@ -119,7 +123,7 @@ int handle_register_client_req(Pkg &pkg)
 
     //根据fd找到对应的channel
     std::map<int, Channel*>::iterator channel_map_it = channel_map.find(pkg.stHead.fd);
-    if(channel_map_it == channel_map.end())
+    if(channel_map_it == channel_map.end() || channel_map_it->second->status != ACTIVE)
     {
         log_debug("can not find channel key %d", pkg.stHead.fd);
         return -1;
@@ -223,20 +227,18 @@ int handle_choose_server_req(Pkg &pkg)
     int raspifd = pkg.stBody.stChooseServerReq.choose_fd;
 
     std::map<int, Channel*>::iterator remote_channel_it = channel_map.find(remotefd);
-    if (remote_channel_it == channel_map.end())
+    if (remote_channel_it == channel_map.end() || remote_channel_it->second->status != ACTIVE)
     {
         log_debug("can not find remote channel remotefd %d", remotefd);
         return -1;
     }
 
     std::map<int, Channel*>::iterator raspi_channel_it = channel_map.find(raspifd);
-    if (raspi_channel_it == channel_map.end())
+    if (raspi_channel_it == channel_map.end() || raspi_channel_it->second->status != ACTIVE)
     {
         log_debug("can not find raspi channel raspifd %d", raspifd);
         return -1;
     }
-
-    raspi_channel_it->second->status = BUSY;
 
     //告诉remote可以recv数据
     Pkg &resPkg = remote_channel_it->second->sendCtx.pkg;
@@ -252,6 +254,8 @@ int handle_choose_server_req(Pkg &pkg)
     clientPkg.stHead.len = sizeof(clientPkg.stBody.stStartSendDataNtf);
     clientPkg.stBody.stStartSendDataNtf.reserve = remotefd;
     response(clientPkg);
+
+    bridge_map.insert(std::make_pair(remotefd, raspi_channel_it->second));
 
     return 0;
 }

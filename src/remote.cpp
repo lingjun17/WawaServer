@@ -131,6 +131,7 @@ int main()
 
 	//封装数据包
 	Pkg *pkg = new Pkg();
+	pkg->construct();
 	pkg->stHead.cmd = PKG_REGISTER_CLIENT_REQ;
 	pkg->stHead.len = sizeof(pkg->stBody.stRegisterClientReq);
 	pkg->stBody.stRegisterClientReq.clientType = CTYPE_REMOTE;

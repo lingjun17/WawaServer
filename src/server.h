@@ -34,6 +34,7 @@ struct SendCtx
     ev_io io;
     Pkg pkg;
     uint32_t len;
+    Channel *pSrcChannel;
     Channel *pChannel;
 };
 
@@ -59,6 +60,8 @@ int setfastopen(int fd);
 Channel* get_free_channel();
 int free_channel(Channel *);
 int inithandler();
+void check_break_fd(int type, int fd);
+
 
 typedef int(*Handler)(Pkg &pkg);
 extern std::map<PKG_CMD_TYPE, Handler> handler_map;
@@ -66,6 +69,8 @@ extern std::map<PKG_CMD_TYPE, Handler>::iterator handler_map_it;
 
 extern std::map<int, Channel*> channel_map; //fd->channel
 extern struct ev_loop *loop;
+extern std::map<int, Channel*> bridge_map;
+
 
 
 #endif //WAWA_SERVER_H

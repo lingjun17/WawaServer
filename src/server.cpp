@@ -22,7 +22,7 @@ struct ev_loop *loop = EV_DEFAULT;
 std::map<int, Channel*> channel_map;
 std::map<PKG_CMD_TYPE, Handler> handler_map;
 std::map<PKG_CMD_TYPE, Handler>::iterator handler_map_it;
-
+std::map<int, Channel*> bridge_map;
 
 int main(int argc, char *argv[])
 {
@@ -117,6 +117,26 @@ int handle(Pkg &pkg)
     }
 }
 
+void check_break_fd(int type, int fd)
+{
+    if (type == CTYPE_REMOTE)
+    {
+        std::map<int, Channel*>::iterator it = bridge_map.find(fd);
+        if (it != bridge_map.end())
+        {
+            Pkg sendPkg;
+            sendPkg.construct();
+            sendPkg.stHead.fd = it->second->fd;
+            sendPkg.stHead.cmd = PKG_RESTART_CLIENT_NTF;
+            sendPkg.stHead.len = sizeof(sendPkg.stBody.stRestartClientNtf);
+            sendPkg.stBody.stRestartClientNtf.Reserve = 1;
+            response(sendPkg);
+            log_debug("send stop pkg to raspi fd %d", sendPkg.stHead.fd);
+            it->second->status = ACTIVE; //
+        }
+    }
+}
+
 void server_recv_cb(EV_P_ ev_io *io, int revents)
 {
     RecvCtx *recvCtx = reinterpret_cast<RecvCtx*>(io);
@@ -128,6 +148,7 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
         // connection closed
         log_debug("server_recv close the connection fd %d", recvCtx->io.fd);
         free_channel(recvCtx->pChannel);
+        check_break_fd(recvCtx->pChannel->type, recvCtx->io.fd);
 
         return;
     } else if (r == -1) {
@@ -138,6 +159,7 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
             return;
         } else {
             log_debug("server recv errorcode %d %s", errno, strerror(errno));
+            //如果是手机端连接失败，需要通知树莓派停止服务
             free_channel(recvCtx->pChannel);
             return;
         }
@@ -177,15 +199,7 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
             int iRet = dispatch(recvCtx->pkg, recvCtx->io.fd, recvCtx->pkg.stHead.fd);
             if (iRet == -2) //对面已经关闭 stop树莓派
             {
-                Pkg sendPkg;
-                sendPkg.construct();
-                sendPkg.stHead.fd = recvCtx->io.fd;
-                sendPkg.stHead.cmd = PKG_RESTART_CLIENT_NTF;
-                sendPkg.stHead.len = sizeof(sendPkg.stBody.stRestartClientNtf);
-                sendPkg.stBody.stRestartClientNtf.Reserve = 1;
-                response(sendPkg);
-                log_debug("send stop pkg to raspi fd %d", sendPkg.stHead.fd);
-                recvCtx->pChannel->status = ACTIVE; //
+                log_debug("dispatch msg failed iRet %d", iRet);
             }
         }
 
@@ -335,34 +349,39 @@ int free_channel(Channel *c)
 //callback 调用的时候 pkg已经赋值
 void server_send_cb(EV_P_ ev_io *io, int revents)
 {
-    //log_debug("server send cb");
+    log_debug("server send cb");
     SendCtx *sendCtx = reinterpret_cast<SendCtx*>(io);
     Channel *pch = sendCtx->pChannel;
 
     int len = pch->sendCtx.pkg.stHead.len + sizeof(pch->sendCtx.pkg.stHead);
-    //log_debug("len %d sendlen %d", len, pch->sendCtx.len);
+    log_debug("len %d sendlen %d", len, pch->sendCtx.len);
     int s = send(pch->fd, (char*)&pch->sendCtx.pkg + pch->sendCtx.len, len - pch->sendCtx.len ,0);
-    if (s == -1) {
+    if (s < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // no data, wait for send
             log_debug("wait data");
             ev_io_start(EV_A_ & pch->sendCtx.io);
         } else {
             log_debug("socket closed in send action fd %d", pch->fd);
+            check_break_fd(pch->type, pch->fd);
             free_channel(pch);
         }
     }
-    else if (pch->sendCtx.len < len)
-    {
-        //log_debug("send cb %d bytes send len %d",pch->sendCtx.len, len);
-        pch->sendCtx.len += s;
-        ev_io_start(EV_A_ & pch->sendCtx.io);
-    }
     else
     {
-        //log_debug("rest %d bytes send over", s);
-        ev_io_stop(EV_A_ & pch->sendCtx.io);
-        ev_io_start(EV_A_ & pch->recvCtx.io);
+        pch->sendCtx.len += s;
+        log_debug("send cb already send %d bytes total len %d this time send %d",pch->sendCtx.len, len, s);
+        if (pch->sendCtx.len < len)
+        {
+            ev_io_start(EV_A_ & pch->sendCtx.io);
+        }
+        else
+        {
+            log_debug("rest %d bytes send over", s);
+            ev_io_stop(EV_A_ & pch->sendCtx.io);
+            ev_io_start(EV_A_ & pch->recvCtx.io);
+            //需要开启源头的接收io
+            ev_io_start(EV_A_ & pch->sendCtx.pSrcChannel->recvCtx.io);
+        }
     }
-
 }
