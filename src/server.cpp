@@ -133,6 +133,7 @@ void check_break_fd(int type, int fd)
             response(sendPkg);
             log_debug("send stop pkg to raspi fd %d", sendPkg.stHead.fd);
             it->second->status = ACTIVE; //
+            bridge_map.erase(fd);
         }
     }
 }
