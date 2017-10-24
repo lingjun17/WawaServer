@@ -160,7 +160,6 @@ void server_recv_cb(EV_P_ ev_io *io, int revents)
             return;
         } else {
             log_debug("server recv errorcode %d %s", errno, strerror(errno));
-            //如果是手机端连接失败，需要通知树莓派停止服务
             free_channel(recvCtx->pChannel);
             return;
         }

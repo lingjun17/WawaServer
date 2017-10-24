@@ -53,7 +53,6 @@ int setnonblocking(int fd);
 int create_and_bind(const char *host, int port);
 void accept_cb(EV_P_ ev_io *w, int revents);
 void signal_cb(EV_P_ ev_signal *w, int revents);
-void accept_cb(EV_P_ ev_io *w, int revents);
 void server_recv_cb(EV_P_ ev_io *w, int revents);
 void server_send_cb(EV_P_ ev_io *w, int revents);
 int setfastopen(int fd);

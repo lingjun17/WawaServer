@@ -24,8 +24,7 @@ int response(Pkg &pkg)
     std::map<int, Channel*>::iterator channel_map_it = channel_map.find(pkg.stHead.fd); //patch
     if(channel_map_it == channel_map.end() || channel_map_it->second->status != ACTIVE)
     {
-        log_debug("send_pkg_to_client can not find channel key %d status %d",
-                  pkg.stHead.fd, channel_map_it->second->status);
+        log_debug("send_pkg_to_client can not find channel key %d", pkg.stHead.fd);
         return -1;
     }
 
